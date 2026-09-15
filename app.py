@@ -3,15 +3,15 @@ import mediapipe as mp
 import random
 import streamlit as st
 import av
-from streamlit_webrtc import VideoTransformerBase, webrtc_streamer, WebRtcMode, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-st.set_page_config(page_title="Pose-Driven Bird Game", page_icon="🐦")
-st.title("🐦 ML Pose-Driven Bird Game")
-st.write("Use your head position to fly through the green pipes!")
+st.set_page_config(page_title="Nose-Driven Bird Game", page_icon="🐦")
+st.title("🐦 ML Nose-Driven Bird Game")
+st.write("Use your nose position to fly through the green pipes!")
 
-base_options = python.BaseOptions(model_asset_path='pose_landmarker_heavy.task')
+base_options = python.BaseOptions(model_asset_path='pose_landmarker_lite.task')
 options = vision.PoseLandmarkerOptions(
     base_options=base_options,
     running_mode=vision.RunningMode.IMAGE,
