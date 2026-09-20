@@ -63,7 +63,13 @@ class GameState:
         self.score = 0
         self.game_over = False
 
-game = GameState()
+if "high_score" not in st.session_state:
+    st.session_state.high_score = 0
+
+if "game" not in st.session_state:
+    st.session_state.game = GameState()
+
+game = st.session_state.game
 
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
@@ -107,11 +113,8 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     bird_y = game.bird_y - game.bird_radius
     overlay_sprite(img, bird, bird_x, bird_y)
 
-    
-
     if game.game_over:
-        cv2.putText(img, "GAME OVER", (w // 2 - 140, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 0), 4)
-        cv2.putText(img, f"Final Score: {game.score}", (w // 2 - 140, h // 2 + 30), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
+        cv2.putText(img, "GAME OVER", (w // 2 - 130, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 0), 4)
     else:
         cv2.putText(img, f"Score: {game.score}", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
 
@@ -126,3 +129,17 @@ webrtc_streamer(
     video_frame_callback=video_frame_callback,
     media_stream_constraints={"video": True, "audio": False}
 )
+
+@st.fragment(run_every="500ms")
+def game_ui():
+    if game.game_over:
+        st.session_state.high_score = max(st.session_state.high_score, game.score)
+
+        st.write(f"Score: {game.score}")
+        st.write(f"🏆High Score: {st.session_state.high_score}")
+
+        if st.button("🔄 Restart 🔄"):
+            st.session_state.game = GameState()
+            st.rerun()
+
+game_ui()
