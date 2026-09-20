@@ -3,6 +3,7 @@ import mediapipe as mp
 import random
 import streamlit as st
 import av
+import os
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -15,9 +16,37 @@ base_options = python.BaseOptions(model_asset_path='pose_landmarker_lite.task')
 options = vision.PoseLandmarkerOptions(
     base_options=base_options,
     running_mode=vision.RunningMode.IMAGE,
-    num_poses = 1
+    num_poses=1
 )
 detector = vision.PoseLandmarker.create_from_options(options)
+
+bird_path = "assets/bird.png"
+pipe_path = "assets/pipe.png"
+curr_path = os.path.dirname(__file__)
+bird_full_path = os.path.join(curr_path, bird_path)
+pipe_full_path = os.path.join(curr_path, pipe_path)
+bird = cv2.imread(bird_full_path, cv2.IMREAD_UNCHANGED)
+pipe = cv2.imread(pipe_full_path, cv2.IMREAD_UNCHANGED)
+
+bird = cv2.resize(bird, (40, 40))
+
+def overlay_sprite(background, sprite, x, y):
+    h, w = sprite.shape[:2]
+
+    if x < 0 or y < 0 or x + w > background.shape[1] or y + h > background.shape[0]:
+        return
+
+    if sprite.shape[2] == 4:
+        sprite_rgb = sprite[:, :, :3]
+        alpha = sprite[:, :, 3] / 255.0
+
+        for c in range(3):
+            background[y:y+h, x:x+w, c] = (
+                alpha * sprite_rgb[:, :, c] +
+                (1 - alpha) * background[y:y+h, x:x+w, c]
+            )
+    else:
+        background[y:y+h, x:x+w] = sprite
 
 class GameState:
     def __init__(self):
@@ -41,7 +70,7 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = cv2.flip(img, 1)
     h, w, _ = img.shape
 
-    try: 
+    try:
         rgb_frame = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
         detection_result = detector.detect(mp_image)
@@ -62,19 +91,29 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
             game.score += 1
 
         if game.pipe_x < (game.bird_x + game.bird_radius) < (game.pipe_x + game.pipe_width):
-            if game.bird_y - game.bird_radius <  game.pipe_top_height or game.bird_y + game.bird_radius > game.pipe_top_height + game.pipe_gap:
+            if game.bird_y - game.bird_radius < game.pipe_top_height or game.bird_y + game.bird_radius > game.pipe_top_height + game.pipe_gap:
                 game.game_over = True
 
-    cv2.rectangle(img, (game.pipe_x, 0), (game.pipe_x + game.pipe_width, game.pipe_top_height), (0, 200, 0), -1)
-    cv2.rectangle(img, (game.pipe_x, game.pipe_top_height + game.pipe_gap), (game.pipe_x + game.pipe_width, h), (0, 200, 0), -1)
+    top_pipe = cv2.resize(pipe, (game.pipe_width, game.pipe_top_height))
+    top_pipe = cv2.flip(top_pipe, 0)
+    overlay_sprite(img, top_pipe, game.pipe_x, 0)
 
-    player_color = (0, 0, 255) if game.game_over else (0, 255, 255)
-    cv2.circle(img, (game.bird_x, game.bird_y), game.bird_radius, player_color, -1)
+    bottom_pipe_y = game.pipe_top_height + game.pipe_gap
+    bottom_pipe_height = h - bottom_pipe_y
+    bottom_pipe = cv2.resize(pipe, (game.pipe_width, bottom_pipe_height))
+    overlay_sprite(img, bottom_pipe, game.pipe_x, bottom_pipe_y)
 
-    cv2.putText(img, f"Score: {game.score}", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
+    bird_x = game.bird_x - game.bird_radius
+    bird_y = game.bird_y - game.bird_radius
+    overlay_sprite(img, bird, bird_x, bird_y)
+
+    
 
     if game.game_over:
         cv2.putText(img, "GAME OVER", (w // 2 - 140, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 0), 4)
+        cv2.putText(img, f"Final Score: {game.score}", (w // 2 - 140, h // 2 + 30), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
+    else:
+        cv2.putText(img, f"Score: {game.score}", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
 
     return av.VideoFrame.from_ndarray(img, format="bgr24")
 
