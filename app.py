@@ -21,32 +21,59 @@ options = vision.PoseLandmarkerOptions(
 detector = vision.PoseLandmarker.create_from_options(options)
 
 bird_path = "assets/bird.png"
-pipe_path = "assets/pipe.png"
+pipe_cap_path = "assets/pipe_cap.png"
+pipe_body_path = "assets/pipe_body.png"
 curr_path = os.path.dirname(__file__)
-bird_full_path = os.path.join(curr_path, bird_path)
-pipe_full_path = os.path.join(curr_path, pipe_path)
-bird = cv2.imread(bird_full_path, cv2.IMREAD_UNCHANGED)
-pipe = cv2.imread(pipe_full_path, cv2.IMREAD_UNCHANGED)
 
-bird = cv2.resize(bird, (40, 40))
+bird_full_path = os.path.join(curr_path, bird_path)
+pipe_cap_full_path = os.path.join(curr_path, pipe_cap_path)
+pipe_body_full_path = os.path.join(curr_path, pipe_body_path)
+
+bird = cv2.imread(bird_full_path, cv2.IMREAD_UNCHANGED)
+pipe_cap = cv2.imread(pipe_cap_full_path, cv2.IMREAD_UNCHANGED)
+pipe_body = cv2.imread(pipe_body_full_path, cv2.IMREAD_UNCHANGED)
 
 def overlay_sprite(background, sprite, x, y):
     h, w = sprite.shape[:2]
 
-    if x < 0 or y < 0 or x + w > background.shape[1] or y + h > background.shape[0]:
+    x1 = max(x, 0)
+    y1 = max(y, 0)
+    x2 = min(x + w, background.shape[1])
+    y2 = min(y + h, background.shape[0])
+
+    if x1 >= x2 or y1 >= y2:
         return
 
+    sx1 = x1 - x
+    sy1 = y1 - y
+    sx2 = sx1 + (x2 - x1)
+    sy2 = sy1 + (y2 - y1)
+
+    sprite_crop = sprite[sy1:sy2, sx1:sx2]
+
     if sprite.shape[2] == 4:
-        sprite_rgb = sprite[:, :, :3]
-        alpha = sprite[:, :, 3] / 255.0
+        sprite_rgb = sprite_crop[:, :, :3]
+        alpha = sprite_crop[:, :, 3] / 255.0
 
         for c in range(3):
-            background[y:y+h, x:x+w, c] = (
+            background[y1:y2, x1:x2, c] = (
                 alpha * sprite_rgb[:, :, c] +
-                (1 - alpha) * background[y:y+h, x:x+w, c]
+                (1 - alpha) * background[y1:y2, x1:x2, c]
             )
     else:
-        background[y:y+h, x:x+w] = sprite
+        background[y1:y2, x1:x2] = sprite_crop
+
+def draw_body(background, body, x, y, height):
+    body_h = body.shape[0]
+
+    current_y = y
+
+    while current_y < y + height:
+        remaining = y + height - current_y
+        draw_h = min(body_h, remaining)
+        piece = body[:draw_h]
+        overlay_sprite(background, piece, x, current_y)
+        current_y += draw_h
 
 class GameState:
     def __init__(self):
@@ -70,6 +97,17 @@ if "game" not in st.session_state:
     st.session_state.game = GameState()
 
 game = st.session_state.game
+
+bird = cv2.resize(bird, (2 * game.bird_radius, 2 * game.bird_radius))
+
+cap_h, cap_w = pipe_cap.shape[:2]
+pipe_cap_h = round(cap_h * game.pipe_width / cap_w)
+pipe_cap_resized = cv2.resize(pipe_cap, (game.pipe_width, pipe_cap_h))
+top_pipe_cap = cv2.flip(pipe_cap_resized, 0)
+
+body_h, body_w = pipe_body.shape[:2]
+pipe_body_h = round(body_h * game.pipe_width / body_w)
+pipe_body_resized = cv2.resize(pipe_body, (game.pipe_width, pipe_body_h))
 
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
@@ -100,14 +138,11 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
             if game.bird_y - game.bird_radius < game.pipe_top_height or game.bird_y + game.bird_radius > game.pipe_top_height + game.pipe_gap:
                 game.game_over = True
 
-    top_pipe = cv2.resize(pipe, (game.pipe_width, game.pipe_top_height))
-    top_pipe = cv2.flip(top_pipe, 0)
-    overlay_sprite(img, top_pipe, game.pipe_x, 0)
+    overlay_sprite(img, pipe_cap_resized, game.pipe_x, game.pipe_top_height + game.pipe_gap)
+    overlay_sprite(img, top_pipe_cap, game.pipe_x, game.pipe_top_height - pipe_cap_h)
 
-    bottom_pipe_y = game.pipe_top_height + game.pipe_gap
-    bottom_pipe_height = h - bottom_pipe_y
-    bottom_pipe = cv2.resize(pipe, (game.pipe_width, bottom_pipe_height))
-    overlay_sprite(img, bottom_pipe, game.pipe_x, bottom_pipe_y)
+    draw_body(img, pipe_body_resized, game.pipe_x, 0, game.pipe_top_height - pipe_cap_h)
+    draw_body(img, pipe_body_resized, game.pipe_x, game.pipe_top_height + game.pipe_gap + pipe_cap_h, h - (game.pipe_top_height + game.pipe_gap + pipe_cap_h))
 
     bird_x = game.bird_x - game.bird_radius
     bird_y = game.bird_y - game.bird_radius
@@ -136,7 +171,7 @@ def game_ui():
         st.session_state.high_score = max(st.session_state.high_score, game.score)
 
         st.write(f"Score: {game.score}")
-        st.write(f"🏆High Score: {st.session_state.high_score}")
+        st.write(f"High Score: {st.session_state.high_score}")
 
         if st.button("🔄 Restart 🔄"):
             st.session_state.game = GameState()
