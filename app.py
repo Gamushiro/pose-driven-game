@@ -9,7 +9,7 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 st.set_page_config(page_title="Nose-Driven Bird Game", page_icon="🐦")
-st.title("🐦 ML Nose-Driven Bird Game")
+st.title("🐦 Nose-Driven Bird Game")
 st.write("Use your nose position to fly through the green pipes!")
 
 base_options = python.BaseOptions(model_asset_path='pose_landmarker_lite.task')
@@ -75,20 +75,38 @@ def draw_body(background, body, x, y, height):
         overlay_sprite(background, piece, x, current_y)
         current_y += draw_h
 
+def rotate_sprite(sprite, angle):
+    h, w = sprite.shape[:2]
+
+    center = (w // 2, h // 2)
+    matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+    return cv2.warpAffine(sprite, matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+
 class GameState:
     def __init__(self):
         self.bird_x = 100
         self.bird_y = 200
+        self.previous_bird_y = self.bird_y
         self.bird_radius = 20
 
-        self.pipe_x = 600
         self.pipe_width = 70
         self.pipe_gap = 100
         self.pipe_speed = 8
-        self.pipe_top_height = random.randint(50, 250)
+
+        self.pipes = [
+            Pipe(600, random.randint(50, 250)),
+            Pipe(900, random.randint(50, 250)),
+            Pipe(1200, random.randint(50, 250))
+        ]
 
         self.score = 0
         self.game_over = False
+
+class Pipe:
+    def __init__(self, x, top_height):
+        self.x = x
+        self.top_height = top_height
 
 if "high_score" not in st.session_state:
     st.session_state.high_score = 0
@@ -122,31 +140,38 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
         if detection_result.pose_landmarks and not game.game_over:
             first_pose = detection_result.pose_landmarks[0]
             nose_y = first_pose[0].y
+            game.previous_bird_y = game.bird_y
             game.bird_y = int(nose_y * h)
     except Exception:
         pass
 
     if not game.game_over:
-        game.pipe_x -= game.pipe_speed
+        for pipe in game.pipes:
+            pipe.x -= game.pipe_speed
 
-        if game.pipe_x < -game.pipe_width:
-            game.pipe_x = w
-            game.pipe_top_height = random.randint(50, h - game.pipe_gap - 50)
-            game.score += 1
+            if pipe.x < -game.pipe_width:
+                rightmost_x = max(p.x for p in game.pipes)
 
-        if game.pipe_x < (game.bird_x + game.bird_radius) < (game.pipe_x + game.pipe_width):
-            if game.bird_y - game.bird_radius < game.pipe_top_height or game.bird_y + game.bird_radius > game.pipe_top_height + game.pipe_gap:
-                game.game_over = True
+                pipe.x = rightmost_x + 300
+                pipe.top_height = random.randint(50, h - game.pipe_gap - 50)
+                game.score += 1
 
-    overlay_sprite(img, pipe_cap_resized, game.pipe_x, game.pipe_top_height + game.pipe_gap)
-    overlay_sprite(img, top_pipe_cap, game.pipe_x, game.pipe_top_height - pipe_cap_h)
+        for pipe in game.pipes:
+            if pipe.x < (game.bird_x + game.bird_radius) < (pipe.x + game.pipe_width):
+                if game.bird_y - game.bird_radius < pipe.top_height or game.bird_y + game.bird_radius > pipe.top_height + game.pipe_gap:
+                    game.game_over = True
 
-    draw_body(img, pipe_body_resized, game.pipe_x, 0, game.pipe_top_height - pipe_cap_h)
-    draw_body(img, pipe_body_resized, game.pipe_x, game.pipe_top_height + game.pipe_gap + pipe_cap_h, h - (game.pipe_top_height + game.pipe_gap + pipe_cap_h))
+    for pipe in game.pipes:
+        overlay_sprite(img, pipe_cap_resized, pipe.x, pipe.top_height + game.pipe_gap)
+        overlay_sprite(img, top_pipe_cap, pipe.x, pipe.top_height - pipe_cap_h)
 
-    bird_x = game.bird_x - game.bird_radius
-    bird_y = game.bird_y - game.bird_radius
-    overlay_sprite(img, bird, bird_x, bird_y)
+        draw_body(img, pipe_body_resized, pipe.x, 0, pipe.top_height - pipe_cap_h)
+        draw_body(img, pipe_body_resized, pipe.x, pipe.top_height + game.pipe_gap + pipe_cap_h, h - (pipe.top_height + game.pipe_gap + pipe_cap_h))
+
+    dy = game.bird_y - game.previous_bird_y
+    angle = max(-30, min(30, -dy * 2))
+    rotated_bird = rotate_sprite(bird, angle)
+    overlay_sprite(img, rotated_bird, game.bird_x - rotated_bird.shape[1] // 2, game.bird_y - rotated_bird.shape[0] // 2)
 
     if game.game_over:
         cv2.putText(img, "GAME OVER", (w // 2 - 130, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 0), 4)
