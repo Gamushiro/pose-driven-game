@@ -20,18 +20,17 @@ options = vision.PoseLandmarkerOptions(
 )
 detector = vision.PoseLandmarker.create_from_options(options)
 
-bird_path = "assets/bird.png"
-pipe_cap_path = "assets/pipe_cap.png"
-pipe_body_path = "assets/pipe_body.png"
 curr_path = os.path.dirname(__file__)
 
-bird_full_path = os.path.join(curr_path, bird_path)
-pipe_cap_full_path = os.path.join(curr_path, pipe_cap_path)
-pipe_body_full_path = os.path.join(curr_path, pipe_body_path)
+bird_full_path = os.path.join(curr_path, "assets/bird.png")
+pipe_cap_full_path = os.path.join(curr_path, "assets/pipe_cap.png")
+pipe_body_full_path = os.path.join(curr_path, "assets/pipe_body.png")
+explosion_full_path = os.path.join(curr_path, "assets/explosion.png")
 
 bird = cv2.imread(bird_full_path, cv2.IMREAD_UNCHANGED)
 pipe_cap = cv2.imread(pipe_cap_full_path, cv2.IMREAD_UNCHANGED)
 pipe_body = cv2.imread(pipe_body_full_path, cv2.IMREAD_UNCHANGED)
+explosion_sheet = cv2.imread(explosion_full_path, cv2.IMREAD_UNCHANGED)
 
 def overlay_sprite(background, sprite, x, y):
     h, w = sprite.shape[:2]
@@ -89,6 +88,7 @@ class GameState:
         self.bird_y = 200
         self.previous_bird_y = self.bird_y
         self.bird_radius = 20
+        self.bird_angle = 0
 
         self.pipe_width = 70
         self.pipe_gap = 100
@@ -103,10 +103,15 @@ class GameState:
         self.score = 0
         self.game_over = False
 
+        self.explosion_frame = 0
+        self.explosion_x = 0
+        self.explosion_y = 0
+
 class Pipe:
     def __init__(self, x, top_height):
         self.x = x
         self.top_height = top_height
+        self.passed = False
 
 if "high_score" not in st.session_state:
     st.session_state.high_score = 0
@@ -115,6 +120,15 @@ if "game" not in st.session_state:
     st.session_state.game = GameState()
 
 game = st.session_state.game
+
+explosion_frames = []
+sheet_h, sheet_w = explosion_sheet.shape[:2]
+frame_w = sheet_w // 4
+
+for i in range(4):
+    frame = explosion_sheet[:, i * frame_w:(i + 1) * frame_w]
+    frame = cv2.resize(frame, (4 * game.bird_radius, 4 * game.bird_radius))
+    explosion_frames.append(frame)
 
 bird = cv2.resize(bird, (2 * game.bird_radius, 2 * game.bird_radius))
 
@@ -154,12 +168,24 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
 
                 pipe.x = rightmost_x + 300
                 pipe.top_height = random.randint(50, h - game.pipe_gap - 50)
-                game.score += 1
+                pipe.passed = False
 
         for pipe in game.pipes:
             if pipe.x < (game.bird_x + game.bird_radius) < (pipe.x + game.pipe_width):
                 if game.bird_y - game.bird_radius < pipe.top_height or game.bird_y + game.bird_radius > pipe.top_height + game.pipe_gap:
                     game.game_over = True
+                    game.explosion_x = game.bird_x - game.bird_radius
+                    game.explosion_y = game.bird_y - game.bird_radius
+
+            if not pipe.passed and pipe.x + game.pipe_width < game.bird_x:
+                pipe.passed = True
+                game.score += 1
+
+    if game.game_over and game.explosion_frame < len(explosion_frames):
+        explosion = explosion_frames[game.explosion_frame]
+
+        overlay_sprite(img, explosion, game.explosion_x, game.explosion_y)
+        game.explosion_frame += 1
 
     for pipe in game.pipes:
         overlay_sprite(img, pipe_cap_resized, pipe.x, pipe.top_height + game.pipe_gap)
@@ -168,10 +194,12 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
         draw_body(img, pipe_body_resized, pipe.x, 0, pipe.top_height - pipe_cap_h)
         draw_body(img, pipe_body_resized, pipe.x, pipe.top_height + game.pipe_gap + pipe_cap_h, h - (pipe.top_height + game.pipe_gap + pipe_cap_h))
 
-    dy = game.bird_y - game.previous_bird_y
-    angle = max(-30, min(30, -dy * 2))
-    rotated_bird = rotate_sprite(bird, angle)
-    overlay_sprite(img, rotated_bird, game.bird_x - rotated_bird.shape[1] // 2, game.bird_y - rotated_bird.shape[0] // 2)
+    if not game.game_over:
+        dy = game.previous_bird_y - game.bird_y
+        angle = max(-30, min(30, dy * 2))
+        game.bird_angle += (angle - game.bird_angle) * 0.3
+        rotated_bird = rotate_sprite(bird, game.bird_angle)
+        overlay_sprite(img, rotated_bird, game.bird_x - rotated_bird.shape[1] // 2, game.bird_y - rotated_bird.shape[0] // 2)
 
     if game.game_over:
         cv2.putText(img, "GAME OVER", (w // 2 - 130, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 0), 4)
@@ -190,7 +218,7 @@ webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False}
 )
 
-@st.fragment(run_every="500ms")
+@st.fragment(run_every="100ms")
 def game_ui():
     if game.game_over:
         st.session_state.high_score = max(st.session_state.high_score, game.score)
