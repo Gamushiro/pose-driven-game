@@ -218,7 +218,7 @@ webrtc_streamer(
     media_stream_constraints={"video": True, "audio": False}
 )
 
-@st.fragment(run_every="100ms")
+@st.fragment(run_every="500ms")
 def game_ui():
     if game.game_over:
         st.session_state.high_score = max(st.session_state.high_score, game.score)
