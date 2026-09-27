@@ -1,3 +1,4 @@
+# Python environment and bytecode
 __pycache__/
 *.pyc
 *.pyo
@@ -5,6 +6,10 @@ __pycache__/
 .venv/
 env/
 venv/
+
+# Streamlit local settings
 .streamlit/
+
+# OS-generated files
 .DS_Store
 Thumbs.db
