@@ -6,40 +6,38 @@
 <title>Nose Bird</title>
 <style>
   *{box-sizing:border-box}
-  body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
-       background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif;padding:12px}
-  h1{margin:0;font-size:1.4rem}
-  #wrap{position:relative;width:100%;max-width:900px}
-  canvas{width:100%;display:block;border-radius:16px;box-shadow:0 10px 40px #0008;touch-action:none}
-  .ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
-      background:#0f172a99;border-radius:16px;text-align:center;padding:16px}
-  .ov h2{margin:0;font-size:2.2rem;color:#fff;text-shadow:0 3px 0 #0006}
-  .ov p{margin:0;color:#cbd5e1}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif}
+  canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+  .ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+      background:#0f172acc;text-align:center;padding:16px}
+  .ov h2{margin:0;font-size:clamp(2rem,6vw,3.4rem);color:#fff;text-shadow:0 4px 0 #0006}
+  .ov p{margin:0;color:#cbd5e1;max-width:520px;line-height:1.5}
   button{font:600 1rem system-ui;padding:12px 24px;border:0;border-radius:12px;background:#f59e0b;color:#1c1917;
          cursor:pointer;box-shadow:0 4px 0 #b45309}
   button.alt{background:#38bdf8;box-shadow:0 4px 0 #0369a1}
-  button:active{transform:translateY(3px);box-shadow:0 1px 0 #b45309}
+  button:active{transform:translateY(3px);box-shadow:none}
+  #fs{position:fixed;left:12px;bottom:12px;padding:8px 14px;font-size:.9rem;opacity:.85;z-index:5}
+  #msg{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);font-size:.85rem;color:#e2e8f0;
+       background:#0008;padding:4px 12px;border-radius:99px;pointer-events:none}
   [hidden]{display:none!important}
-  #msg{font-size:.85rem;color:#94a3b8;min-height:1.2em;margin:0}
 </style>
 </head>
 <body>
-<h1>🐦 Nose Bird</h1>
-<div id="wrap">
-  <canvas id="c" width="720" height="480"></canvas>
-  <div class="ov" id="menu">
-    <h2>Nose Bird</h2>
-    <p>Gerakkan hidungmu naik-turun untuk terbang lewat celah pipa.</p>
-    <button id="bCam">📷 Main dengan Kamera</button>
-    <button id="bMouse" class="alt">🖱️ Main dengan Mouse / Sentuh</button>
-  </div>
-  <div class="ov" id="over" hidden>
-    <h2>Game Over</h2>
-    <p id="res"></p>
-    <button id="bAgain">🔄 Main Lagi (Spasi)</button>
-  </div>
+<canvas id="c"></canvas>
+<div class="ov" id="menu">
+  <h2>🐦 Nose Bird</h2>
+  <p><b>Hidung</b> = gerakkan burung naik-turun.<br><b>Angkat tangan</b> (di atas hidung) = tembak! <br>
+     Hindari pipa &amp; kelelawar, tembak musuh, ambil koin. Nyawa kamu 3 ♥</p>
+  <button id="bCam">📷 Main dengan Kamera</button>
+  <button id="bMouse" class="alt">🖱️ Mouse / Sentuh (tahan klik atau Spasi = tembak)</button>
 </div>
-<p id="msg"></p>
+<div class="ov" id="over" hidden>
+  <h2>Game Over</h2>
+  <p id="res"></p>
+  <button id="bAgain">🔄 Main Lagi (Spasi)</button>
+</div>
+<button id="fs" title="Layar penuh (F)">⛶ Layar Penuh</button>
+<div id="msg" hidden></div>
 <video id="v" playsinline muted hidden></video>
 
 <script type="module">
@@ -48,48 +46,61 @@ import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@m
 const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
 const $ = id => document.getElementById(id);
 const cv = $("c"), ctx = cv.getContext("2d"), video = $("v");
-const W = 720, H = 480, GROUND = 56, PW = 72, GAP = 150, BR = 16, BX = 170, SPACING = 290, CAP = 28;
+const H = 600, GROUND = 70, PW = 76, GAP = 175, BR = 17, SPACING = 310, CAP = 30;
 const rand = (a, b) => Math.random() * (b - a) + a;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const PLAY_MIN = BR, PLAY_MAX = H - GROUND - BR;
+let W = 1000, S = 1, BX = 180;
+
+function resize() {
+  const d = devicePixelRatio || 1;
+  cv.width = innerWidth * d; cv.height = innerHeight * d;
+  S = cv.height / H; W = cv.width / S; BX = Math.max(140, W * .18);
+}
+addEventListener("resize", resize); resize();
 
 let mode = "menu", landmarker = null, useCam = false, lastVT = -1, last = performance.now();
-let targetY = H / 2, scroll = 0, shake = 0, pulse = 0, noseN = null, best = 0;
+let targetY = H / 2, scroll = 0, shake = 0, pulse = 0, noseN = null, wrists = [], handUp = false, holding = false, best = 0;
+let bird, pipes, bullets, enemies, parts, score, kills, lives, inv, cool, spawnT, msgT = 0;
 try { best = +localStorage.getItem("nosebird-best") || 0; } catch (e) {}
-let bird, pipes, parts, score;
-const clouds = Array.from({ length: 7 }, () => ({ x: rand(0, W), y: rand(20, 200), s: rand(.6, 1.4), sp: rand(.1, .3) }));
+const clouds = Array.from({ length: 10 }, () => ({ x: rand(0, 1600), y: rand(20, 240), s: rand(.6, 1.5), sp: rand(.1, .35) }));
+const newPipe = x => ({ x, top: rand(90, H - GROUND - GAP - 90), passed: false, coin: Math.random() < .7 });
 
 function reset() {
   bird = { y: H / 2, vy: 0, flap: 0 };
-  pipes = [700, 700 + SPACING, 700 + 2 * SPACING].map(x => ({ x, top: rand(70, H - GROUND - GAP - 70), passed: false }));
-  parts = []; score = 0; shake = 0; targetY = H / 2;
+  const n = Math.ceil((W + 300) / SPACING) + 1;
+  pipes = Array.from({ length: n }, (_, i) => newPipe(W * .9 + i * SPACING));
+  bullets = []; enemies = []; parts = []; score = 0; kills = 0; lives = 3; inv = 0; cool = 0; spawnT = 120; shake = 0; targetY = H / 2;
 }
 reset();
 
+function toast(t) { $("msg").textContent = t; $("msg").hidden = false; clearTimeout(msgT); msgT = setTimeout(() => $("msg").hidden = true, 4000); }
+const fs = () => { try { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); } catch (e) {} };
+
 /* ---------- input ---------- */
-cv.addEventListener("pointermove", e => {
-  if (useCam) return;
-  const r = cv.getBoundingClientRect();
-  targetY = clamp((e.clientY - r.top) / r.height * H, PLAY_MIN, PLAY_MAX);
+cv.addEventListener("pointermove", e => { if (!useCam) targetY = clamp(e.clientY / innerHeight * H, PLAY_MIN, PLAY_MAX); });
+cv.addEventListener("pointerdown", () => holding = true);
+addEventListener("pointerup", () => holding = false);
+addEventListener("keydown", e => {
+  if (e.code === "Space") { e.preventDefault(); if (mode === "over") start(); else holding = true; }
+  if (e.code === "KeyF") fs();
 });
-addEventListener("keydown", e => { if ((e.code === "Space" || e.code === "Enter") && mode === "over") restart(); });
+addEventListener("keyup", e => { if (e.code === "Space") holding = false; });
+$("fs").onclick = fs;
 
 function start() { reset(); mode = "play"; $("menu").hidden = true; $("over").hidden = true; }
-function restart() { start(); }
-$("bAgain").onclick = restart;
-$("bMouse").onclick = () => { useCam = false; $("msg").textContent = "Mode mouse: gerakkan kursor / jari naik-turun."; start(); };
+$("bAgain").onclick = start;
+$("bMouse").onclick = () => { useCam = false; fs(); toast("Mode mouse: gerak = kursor, tahan klik / Spasi = tembak"); start(); };
 $("bCam").onclick = async () => {
-  $("msg").textContent = "Memuat model & kamera…";
+  toast("Memuat model & kamera…");
   try {
-    const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-    landmarker = await PoseLandmarker.createFromOptions(fs, {
+    const fsr = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    landmarker = await PoseLandmarker.createFromOptions(fsr, {
       baseOptions: { modelAssetPath: MODEL, delegate: "GPU" }, runningMode: "VIDEO", numPoses: 1 });
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
     await video.play();
-    useCam = true; $("msg").textContent = "Kamera aktif. Berdirilah agar kepala terlihat jelas."; start();
-  } catch (e) {
-    $("msg").textContent = "Kamera gagal (" + e.message + "). Gunakan mode mouse.";
-  }
+    useCam = true; fs(); toast("Kamera aktif. Pastikan kepala & tangan terlihat."); start();
+  } catch (e) { toast("Kamera gagal (" + e.message + "). Pakai mode mouse."); }
 };
 
 function readPose() {
@@ -98,57 +109,77 @@ function readPose() {
   try {
     const r = landmarker.detectForVideo(video, performance.now());
     if (r.landmarks && r.landmarks.length) {
-      noseN = r.landmarks[0][0];
+      const lm = r.landmarks[0];
+      noseN = lm[0];
+      wrists = [lm[15], lm[16]].filter(w => w && (w.visibility ?? 1) > .4);
+      handUp = wrists.some(w => w.y < noseN.y);
       targetY = PLAY_MIN + clamp((noseN.y - 0.15) / 0.7, 0, 1) * (PLAY_MAX - PLAY_MIN);
-    }
+    } else handUp = false;
   } catch (e) {}
 }
 
-/* ---------- game logic ---------- */
-function burst(x, y) {
-  for (let i = 0; i < 36; i++) {
+/* ---------- logic ---------- */
+function burst(x, y, cols, n = 26) {
+  for (let i = 0; i < n; i++) {
     const a = rand(0, 6.283), s = rand(2, 8);
-    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 2, life: 1, r: rand(2, 6),
-                 c: ["#fde047", "#fb923c", "#f87171", "#fff"][i % 4] });
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 2, life: 1, r: rand(2, 6), c: cols[i % cols.length] });
   }
+}
+function fire() { if (cool > 0) return; bullets.push({ x: BX + 24, y: bird.y }); cool = 14; }
+function hurt() {
+  lives--; inv = 100; shake = 12; burst(BX, bird.y, ["#f87171", "#fde047", "#fff"]);
+  if (lives <= 0) gameOver();
+}
+function gameOver() {
+  mode = "over"; shake = 18; burst(BX, bird.y, ["#fde047", "#fb923c", "#f87171", "#fff"], 40);
+  if (score > best) { best = score; try { localStorage.setItem("nosebird-best", best); } catch (e) {} }
+  $("res").textContent = `Skor: ${score}  •  Musuh ditembak: ${kills}  •  Terbaik: ${best}`;
+  setTimeout(() => { if (mode === "over") $("over").hidden = false; }, 600);
 }
 
 function update(dt) {
-  const speed = mode === "play" ? Math.min(3.2 + score * 0.06, 6) : 1.2;
-  scroll += speed * dt;
-  clouds.forEach(c => { c.x -= c.sp * dt; if (c.x < -120) c.x = W + 60; });
-  pulse = Math.max(0, pulse - 0.05 * dt);
-  shake = Math.max(0, shake - 0.8 * dt);
+  const play = mode === "play", speed = play ? Math.min(3.6 + score * 0.05, 7) : 1.2;
+  scroll += speed * dt; cool -= dt; inv -= dt;
+  clouds.forEach(c => { c.x -= c.sp * dt; if (c.x < -140) c.x = W + 80; });
+  pulse = Math.max(0, pulse - 0.05 * dt); shake = Math.max(0, shake - 0.8 * dt);
   parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.25 * dt; p.life -= 0.02 * dt; });
   parts = parts.filter(p => p.life > 0);
   bird.flap += 0.35 * dt;
-
-  if (mode === "menu") { bird.y = H / 2 + Math.sin(performance.now() / 300) * 12; return; }
+  if (mode === "menu") { bird.y = H / 2 + Math.sin(performance.now() / 300) * 14; return; }
   if (mode === "over") { bird.y = Math.min(bird.y + 6 * dt, H - GROUND - BR); return; }
 
   const prev = bird.y;
-  bird.y += (targetY - bird.y) * Math.min(1, 0.25 * dt);
-  bird.y = clamp(bird.y, PLAY_MIN, PLAY_MAX);
+  bird.y = clamp(bird.y + (targetY - bird.y) * Math.min(1, 0.25 * dt), PLAY_MIN, PLAY_MAX);
   bird.vy = bird.y - prev;
+  if (handUp || holding) fire();
 
+  const r = BR * .85;
   for (const p of pipes) {
     p.x -= speed * dt;
-    if (p.x < -PW - 10) {
-      p.x = Math.max(...pipes.map(q => q.x)) + SPACING;
-      p.top = rand(70, H - GROUND - GAP - 70); p.passed = false;
-    }
-    if (BX + BR * .85 > p.x && BX - BR * .85 < p.x + PW &&
-        (bird.y - BR * .85 < p.top || bird.y + BR * .85 > p.top + GAP)) gameOver();
+    if (p.x < -PW - 10) Object.assign(p, newPipe(Math.max(...pipes.map(q => q.x)) + SPACING));
+    if (inv <= 0 && BX + r > p.x && BX - r < p.x + PW && (bird.y - r < p.top || bird.y + r > p.top + GAP)) hurt();
     if (!p.passed && p.x + PW < BX) { p.passed = true; score++; pulse = 1; }
+    if (p.coin && Math.hypot(p.x + PW / 2 - BX, p.top + GAP / 2 - bird.y) < BR + 16) {
+      p.coin = false; score++; pulse = 1; burst(p.x + PW / 2, p.top + GAP / 2, ["#fde047", "#fff"], 12);
+    }
   }
-}
-
-function gameOver() {
-  if (mode === "over") return;
-  mode = "over"; shake = 16; burst(BX, bird.y);
-  if (score > best) { best = score; try { localStorage.setItem("nosebird-best", best); } catch (e) {} }
-  $("res").textContent = `Skor: ${score}  •  Terbaik: ${best}`;
-  setTimeout(() => { $("over").hidden = false; }, 500);
+  for (const b of bullets) {
+    b.x += 14 * dt;
+    for (const p of pipes) if (b.x > p.x && b.x < p.x + PW && (b.y < p.top || b.y > p.top + GAP)) b.dead = true;
+  }
+  spawnT -= dt;
+  if (spawnT <= 0) { enemies.push({ x: W + 50, y0: rand(90, H - GROUND - 90), ph: rand(0, 6), t: 0 }); spawnT = Math.max(70, rand(110, 200) - score * 2); }
+  for (const e of enemies) {
+    e.x -= (speed + 1.6) * dt; e.t += dt; e.y = e.y0 + Math.sin(e.t * .05 + e.ph) * 55;
+    for (const b of bullets) if (!b.dead && !e.dead && Math.hypot(b.x - e.x, b.y - e.y) < 30) {
+      b.dead = e.dead = true; kills++; score += 2; pulse = 1; burst(e.x, e.y, ["#c084fc", "#fff", "#f0abfc"]);
+    }
+    if (!e.dead && inv <= 0 && mode === "play" && Math.hypot(e.x - BX, e.y - bird.y) < BR + 20) {
+      e.dead = true; burst(e.x, e.y, ["#c084fc", "#fff"], 14); hurt();
+    }
+  }
+  bullets = bullets.filter(b => !b.dead && b.x < W + 30);
+  enemies = enemies.filter(e => !e.dead && e.x > -60);
 }
 
 /* ---------- drawing ---------- */
@@ -156,10 +187,11 @@ function drawSky() {
   let g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "#38bdf8"); g.addColorStop(.7, "#bae6fd"); g.addColorStop(1, "#fef9c3");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  g = ctx.createRadialGradient(560, 90, 5, 560, 90, 70);
+  const sx = W * .72;
+  g = ctx.createRadialGradient(sx, 100, 5, sx, 100, 90);
   g.addColorStop(0, "#fff7aeee"); g.addColorStop(1, "#fff7ae00");
-  ctx.fillStyle = g; ctx.fillRect(480, 10, 160, 160);
-  ctx.fillStyle = "#fde047"; ctx.beginPath(); ctx.arc(560, 90, 26, 0, 7); ctx.fill();
+  ctx.fillStyle = g; ctx.fillRect(sx - 100, 0, 200, 200);
+  ctx.fillStyle = "#fde047"; ctx.beginPath(); ctx.arc(sx, 100, 30, 0, 7); ctx.fill();
   ctx.fillStyle = "#ffffffcc";
   for (const c of clouds) {
     ctx.beginPath();
@@ -168,78 +200,101 @@ function drawSky() {
   }
   const hill = (off, base, amp, col, k) => {
     ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, H);
-    for (let x = 0; x <= W; x += 10) ctx.lineTo(x, base + Math.sin((x + scroll * k) / 70 + off) * amp + Math.sin((x + scroll * k) / 29) * amp * .3);
+    for (let x = 0; x <= W + 10; x += 10) ctx.lineTo(x, base + Math.sin((x + scroll * k) / 80 + off) * amp + Math.sin((x + scroll * k) / 31) * amp * .3);
     ctx.lineTo(W, H); ctx.fill();
   };
-  hill(0, H - GROUND - 70, 26, "#86efac", .15);
-  hill(2, H - GROUND - 36, 20, "#4ade80", .35);
+  hill(0, H - GROUND - 90, 30, "#86efac", .15);
+  hill(2, H - GROUND - 45, 22, "#4ade80", .35);
 }
-
-function drawPipe(x, top) {
-  const bottomY = top + GAP, gh = H - GROUND;
+function drawPipe(p) {
+  const x = p.x, bY = p.top + GAP, gh = H - GROUND;
   const g = ctx.createLinearGradient(x, 0, x + PW, 0);
   g.addColorStop(0, "#2f8f2f"); g.addColorStop(.3, "#7ee05a"); g.addColorStop(.6, "#4cb43a"); g.addColorStop(1, "#276f27");
-  const part = (px, py, w, h) => {
-    ctx.fillStyle = g; ctx.fillRect(px, py, w, h);
-    ctx.strokeStyle = "#1b4d1b"; ctx.lineWidth = 3; ctx.strokeRect(px, py, w, h);
-  };
-  part(x + 5, -4, PW - 10, top - CAP + 4);
-  part(x, top - CAP, PW, CAP);
-  part(x, bottomY, PW, CAP);
-  part(x + 5, bottomY + CAP, PW - 10, gh - bottomY - CAP + 4);
+  const part = (px, py, w, h) => { ctx.fillStyle = g; ctx.fillRect(px, py, w, h); ctx.strokeStyle = "#1b4d1b"; ctx.lineWidth = 3; ctx.strokeRect(px, py, w, h); };
+  part(x + 6, -4, PW - 12, p.top - CAP + 4); part(x, p.top - CAP, PW, CAP);
+  part(x, bY, PW, CAP); part(x + 6, bY + CAP, PW - 12, gh - bY - CAP + 4);
+  if (p.coin) {
+    const cx = x + PW / 2, cy = p.top + GAP / 2, w = Math.max(.25, Math.abs(Math.cos(performance.now() / 200)));
+    ctx.fillStyle = "#fbbf24"; ctx.strokeStyle = "#92400e"; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(cx, cy, 13 * w, 13, 0, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#fde68a"; ctx.beginPath(); ctx.ellipse(cx, cy, 6 * w, 7, 0, 0, 7); ctx.fill();
+  }
 }
-
 function drawGround() {
   ctx.fillStyle = "#d6a45a"; ctx.fillRect(0, H - GROUND, W, GROUND);
-  ctx.fillStyle = "#65c23a"; ctx.fillRect(0, H - GROUND, W, 14);
+  ctx.fillStyle = "#65c23a"; ctx.fillRect(0, H - GROUND, W, 16);
   ctx.fillStyle = "#4ba02a";
-  for (let x = -((scroll * 1) % 40); x < W; x += 40) {
-    ctx.beginPath(); ctx.moveTo(x, H - GROUND); ctx.lineTo(x + 20, H - GROUND); ctx.lineTo(x + 8, H - GROUND + 14); ctx.lineTo(x - 12, H - GROUND + 14); ctx.fill();
+  for (let x = -(scroll % 44); x < W; x += 44) {
+    ctx.beginPath(); ctx.moveTo(x, H - GROUND); ctx.lineTo(x + 22, H - GROUND); ctx.lineTo(x + 8, H - GROUND + 16); ctx.lineTo(x - 14, H - GROUND + 16); ctx.fill();
   }
-  ctx.fillStyle = "#b9863f"; ctx.fillRect(0, H - GROUND + 14, W, 4);
+  ctx.fillStyle = "#b9863f"; ctx.fillRect(0, H - GROUND + 16, W, 4);
 }
-
-function drawBird() {
-  ctx.save(); ctx.translate(BX, bird.y);
-  ctx.rotate(mode === "over" ? 1.2 : clamp(bird.vy * 0.07, -.5, .8));
+function drawBirdAt(x, y, ang, sc, flap) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(sc, sc);
   ctx.fillStyle = "#00000022"; ctx.beginPath(); ctx.ellipse(2, 4, BR + 2, BR - 2, 0, 0, 7); ctx.fill();
   const g = ctx.createRadialGradient(-4, -6, 2, 0, 0, BR + 4);
   g.addColorStop(0, "#fff08a"); g.addColorStop(1, "#f5a623");
   ctx.fillStyle = g; ctx.strokeStyle = "#7c4a03"; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.ellipse(0, 0, BR + 3, BR, 0, 0, 7); ctx.fill(); ctx.stroke();
   ctx.fillStyle = "#fff3c4"; ctx.beginPath(); ctx.ellipse(2, 6, 10, 6, 0, 0, 7); ctx.fill();
-  ctx.save(); ctx.translate(-5, 2); ctx.rotate(Math.sin(bird.flap) * .6);
+  ctx.save(); ctx.translate(-5, 2); ctx.rotate(Math.sin(flap) * .6);
   ctx.fillStyle = "#f08a00"; ctx.beginPath(); ctx.ellipse(0, 0, 10, 6, -.3, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore();
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(8, -5, 6, 0, 7); ctx.fill(); ctx.stroke();
   ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(10, -5, 2.6, 0, 7); ctx.fill();
   ctx.fillStyle = "#ef4444"; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(25, 3); ctx.lineTo(14, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.restore();
 }
-
+function drawEnemy(e) {
+  ctx.save(); ctx.translate(e.x, e.y);
+  const f = Math.sin(e.t * .3);
+  ctx.fillStyle = "#6d28d9"; ctx.strokeStyle = "#2e1065"; ctx.lineWidth = 2;
+  for (const s of [-1, 1]) {
+    ctx.save(); ctx.scale(s, 1); ctx.rotate(f * .3);
+    ctx.beginPath(); ctx.moveTo(8, -4); ctx.quadraticCurveTo(30, -32 - f * 8, 40, 2); ctx.quadraticCurveTo(28, 0, 22, 12); ctx.quadraticCurveTo(15, 3, 8, 9);
+    ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  }
+  ctx.fillStyle = "#7c3aed"; ctx.beginPath(); ctx.ellipse(0, 0, 15, 18, 0, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#6d28d9"; ctx.beginPath(); ctx.moveTo(-12, -12); ctx.lineTo(-9, -26); ctx.lineTo(-3, -16); ctx.moveTo(12, -12); ctx.lineTo(9, -26); ctx.lineTo(3, -16); ctx.fill();
+  ctx.fillStyle = "#fecaca"; ctx.beginPath(); ctx.arc(-6, -4, 4.5, 0, 7); ctx.arc(6, -4, 4.5, 0, 7); ctx.fill();
+  ctx.fillStyle = "#dc2626"; ctx.beginPath(); ctx.arc(-6, -4, 2, 0, 7); ctx.arc(6, -4, 2, 0, 7); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(-6, 6); ctx.lineTo(-3, 13); ctx.lineTo(0, 6); ctx.moveTo(0, 6); ctx.lineTo(3, 13); ctx.lineTo(6, 6); ctx.fill();
+  ctx.restore();
+}
 function drawPip() {
   if (!useCam || video.readyState < 2) return;
-  const w = 160, h = 120, x = W - w - 12, y = 12;
-  ctx.save(); ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(x, y, w, h, 10) : ctx.rect(x, y, w, h); ctx.clip();
+  const w = 220, h = 165, x = W - w - 14, y = 14;
+  ctx.save(); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, 12) : ctx.rect(x, y, w, h); ctx.clip();
   ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.drawImage(video, 0, 0, w, h); ctx.restore();
-  ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h);
-  if (noseN) { ctx.fillStyle = "#ef4444"; ctx.beginPath(); ctx.arc(x + (1 - noseN.x) * w, y + noseN.y * h, 5, 0, 7); ctx.fill(); }
+  ctx.strokeStyle = handUp ? "#fb923c" : "#fff"; ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h);
+  for (const wr of wrists) { ctx.fillStyle = "#22d3ee"; ctx.beginPath(); ctx.arc(x + (1 - wr.x) * w, y + wr.y * h, 6, 0, 7); ctx.fill(); }
+  if (noseN) drawBirdAt(x + (1 - noseN.x) * w, y + noseN.y * h, 0, .8, performance.now() / 90);
+  ctx.font = "700 13px system-ui"; ctx.textAlign = "center"; ctx.fillStyle = handUp ? "#fb923c" : "#e2e8f0";
+  ctx.strokeStyle = "#000a"; ctx.lineWidth = 3;
+  const t = handUp ? "🔥 MENEMBAK" : "Angkat tangan = tembak";
+  ctx.strokeText(t, x + w / 2, y + h + 18); ctx.fillText(t, x + w / 2, y + h + 18);
 }
-
 function draw() {
+  ctx.setTransform(S, 0, 0, S, 0, 0);
   ctx.save();
   if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
   drawSky();
-  if (mode !== "menu") pipes.forEach(p => drawPipe(p.x, p.top));
+  if (mode !== "menu") pipes.forEach(drawPipe);
   drawGround();
-  if (mode !== "over" || shake > 0 || parts.length) drawBird();
+  enemies.forEach(drawEnemy);
+  for (const b of bullets) {
+    for (let i = 3; i >= 0; i--) { ctx.globalAlpha = .25 + (3 - i) * .2; ctx.fillStyle = i ? "#fb923c" : "#fde047"; ctx.beginPath(); ctx.arc(b.x - i * 7, b.y, 7 - i, 0, 7); ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+  if (mode !== "over" && !(inv > 0 && Math.floor(inv / 5) % 2)) drawBirdAt(BX, bird.y, clamp(bird.vy * 0.07, -.5, .8), 1, bird.flap);
   for (const p of parts) { ctx.globalAlpha = Math.max(p.life, 0); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); }
   ctx.globalAlpha = 1;
   if (mode !== "menu") {
-    ctx.font = `bold ${46 + pulse * 14}px system-ui`; ctx.textAlign = "center"; ctx.lineWidth = 6;
-    ctx.strokeStyle = "#0008"; ctx.strokeText(score, W / 2, 62); ctx.fillStyle = "#fff"; ctx.fillText(score, W / 2, 62);
-    ctx.font = "600 14px system-ui"; ctx.textAlign = "left"; ctx.lineWidth = 3;
-    ctx.strokeText(`Terbaik: ${best}`, 16, 28); ctx.fillText(`Terbaik: ${best}`, 16, 28);
+    ctx.textAlign = "center"; ctx.lineWidth = 6; ctx.strokeStyle = "#0008";
+    ctx.font = `bold ${50 + pulse * 16}px system-ui`; ctx.strokeText(score, W / 2, 66); ctx.fillStyle = "#fff"; ctx.fillText(score, W / 2, 66);
+    ctx.textAlign = "left"; ctx.font = "30px system-ui"; ctx.lineWidth = 4;
+    for (let i = 0; i < 3; i++) { ctx.fillStyle = i < lives ? "#ef4444" : "#ffffff55"; ctx.strokeText("♥", 20 + i * 36, 48); ctx.fillText("♥", 20 + i * 36, 48); }
+    ctx.font = "600 15px system-ui"; ctx.fillStyle = "#fff"; ctx.lineWidth = 3;
+    const info = `Terbaik: ${best}  •  Musuh: ${kills}`; ctx.strokeText(info, 20, 76); ctx.fillText(info, 20, 76);
   }
   ctx.restore();
   drawPip();
