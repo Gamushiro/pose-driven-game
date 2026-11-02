@@ -1,4 +1,4 @@
-# Nose Driven Bird Game 🐦
+# Nose Driven Bird Game 
 A fun little interactive game made using MediaPipe Pose Landmarker.
 
 ## How To Run
