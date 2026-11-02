@@ -16,20 +16,74 @@
          cursor:pointer;box-shadow:0 4px 0 #b45309}
   button.alt{background:#38bdf8;box-shadow:0 4px 0 #0369a1}
   button:active{transform:translateY(3px);box-shadow:none}
+  .choices{display:flex;gap:22px;margin-top:10px}
+  .icon-btn{width:100px;height:100px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:26px;transition:transform .15s}
+  .icon-btn:hover{transform:translateY(-4px) scale(1.06)}
+  .icon-btn:focus-visible{outline:3px solid #fff;outline-offset:3px}
+  .icon-btn svg{width:50px;height:50px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #fs{position:fixed;left:12px;bottom:12px;padding:8px 14px;font-size:.9rem;opacity:.85;z-index:5}
   #msg{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);font-size:.85rem;color:#e2e8f0;
        background:#0008;padding:4px 12px;border-radius:99px;pointer-events:none}
+  #loader{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;overflow:hidden;
+          background:linear-gradient(#38bdf8,#bae6fd 70%,#fef9c3);transition:opacity .6s}
+  #loader.hide{opacity:0;pointer-events:none}
+  .cloud{position:absolute;left:-200px;width:120px;height:38px;background:#fffd;border-radius:40px;animation:drift linear infinite}
+  .cloud::before{content:"";position:absolute;left:22px;top:-22px;width:58px;height:58px;border-radius:50%;background:inherit}
+  .c1{top:14%;animation-duration:28s}
+  .c2{top:34%;transform:scale(1.4);animation-duration:40s;animation-delay:-14s}
+  .c3{top:72%;transform:scale(.8);animation-duration:22s;animation-delay:-8s}
+  @keyframes drift{to{left:110%}}
+  .ld-box{position:relative;text-align:center;color:#0c4a6e;width:min(380px,86vw)}
+  .ld-box h2{margin:6px 0 18px;font-size:clamp(2rem,7vw,3rem);color:#fff;text-shadow:0 4px 0 #0c4a6e66}
+  #ldBird{animation:bob 1.1s ease-in-out infinite;filter:drop-shadow(0 8px 6px #0003)}
+  @keyframes bob{50%{transform:translateY(-14px) rotate(-6deg)}}
+  .wing{transform-box:fill-box;transform-origin:80% 30%;animation:flap .22s ease-in-out infinite alternate}
+  @keyframes flap{to{transform:rotate(-55deg)}}
+  .bar{height:20px;background:#0c4a6e2a;border-radius:99px;overflow:hidden;border:3px solid #0c4a6e}
+  #ldFill{height:100%;width:25%;transition:width .5s ease;background:repeating-linear-gradient(45deg,#fbbf24 0 12px,#f59e0b 12px 24px);
+          background-size:34px 34px;animation:stripe .9s linear infinite}
+  @keyframes stripe{to{background-position:34px 0}}
+  #ldText{margin:14px 0 6px;font-weight:700;font-size:1.05rem}
+  #ldTip{margin:0;min-height:2.6em;font-size:.88rem;color:#075985;opacity:.9}
   [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="loader">
+  <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
+  <div class="ld-box">
+    <svg id="ldBird" viewBox="-28 -24 62 48" width="120" aria-hidden="true">
+      <ellipse cx="0" cy="0" rx="20" ry="17" fill="#f5a623" stroke="#7c4a03" stroke-width="2.5"/>
+      <ellipse cx="2" cy="6" rx="10" ry="6" fill="#fff3c4"/>
+      <ellipse class="wing" cx="-5" cy="2" rx="10" ry="6" fill="#f08a00" stroke="#7c4a03" stroke-width="2"/>
+      <circle cx="8" cy="-5" r="6" fill="#fff" stroke="#7c4a03" stroke-width="2"/>
+      <circle cx="10" cy="-5" r="2.6" fill="#111"/>
+      <path d="M14 0L26 3L14 8Z" fill="#ef4444" stroke="#7c4a03" stroke-width="2"/>
+    </svg>
+    <h2>Nose Bird</h2>
+    <div class="bar"><div id="ldFill"></div></div>
+    <p id="ldText">Memuat game…</p>
+    <p id="ldTip"></p>
+  </div>
+</div>
+<script>
+  setTimeout(function () {
+    if (!window.__ready) document.getElementById("ldText").textContent = "Gagal memuat. Periksa koneksi internet lalu refresh halaman.";
+  }, 15000);
+</script>
 <div class="ov" id="menu">
   <h2>🐦 Nose Bird</h2>
   <p><b>Hidung</b> = gerakkan burung naik-turun.<br><b>Angkat tangan</b> (di atas hidung) = tembak! <br>
      Hindari pipa &amp; kelelawar, tembak musuh, ambil koin. Nyawa kamu 3 ♥</p>
-  <button id="bCam">📷 Main dengan Kamera</button>
-  <button id="bMouse" class="alt">🖱️ Mouse / Sentuh (tahan klik atau Spasi = tembak)</button>
+  <div class="choices">
+    <button id="bCam" class="icon-btn" aria-label="Main dengan kamera" title="Kamera">
+      <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    </button>
+    <button id="bMouse" class="icon-btn alt" aria-label="Main dengan mouse atau sentuh" title="Mouse / Sentuh">
+      <svg viewBox="0 0 24 24"><rect x="6.5" y="2" width="11" height="20" rx="5.5"/><path d="M12 2v7M6.5 9h11"/></svg>
+    </button>
+  </div>
 </div>
 <div class="ov" id="over" hidden>
   <h2>Game Over</h2>
@@ -92,15 +146,20 @@ function start() { reset(); mode = "play"; $("menu").hidden = true; $("over").hi
 $("bAgain").onclick = start;
 $("bMouse").onclick = () => { useCam = false; fs(); toast("Mode mouse: gerak = kursor, tahan klik / Spasi = tembak"); start(); };
 $("bCam").onclick = async () => {
-  toast("Memuat model & kamera…");
+  showLoad(10, "Memuat mesin AI…");
   try {
     const fsr = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    setLoad(40, "Mengunduh model pose…");
     landmarker = await PoseLandmarker.createFromOptions(fsr, {
       baseOptions: { modelAssetPath: MODEL, delegate: "GPU" }, runningMode: "VIDEO", numPoses: 1 });
+    setLoad(75, "Menyalakan kamera… (klik Izinkan)");
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
     await video.play();
+    setLoad(100, "Siap! Selamat bermain 🎮");
+    await new Promise(r => setTimeout(r, 600));
+    hideLoad();
     useCam = true; fs(); toast("Kamera aktif. Pastikan kepala & tangan terlihat."); start();
-  } catch (e) { toast("Kamera gagal (" + e.message + "). Pakai mode mouse."); }
+  } catch (e) { hideLoad(); toast("Kamera gagal (" + e.message + "). Pakai mode mouse."); }
 };
 
 function readPose() {
@@ -306,6 +365,25 @@ function frame(t) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+/* ---------- loading screen ---------- */
+const ld = $("loader");
+const tips = [
+  "Angkat tangan di atas hidung untuk menembak kelelawar.",
+  "Koin emas di celah pipa memberi bonus skor.",
+  "Mundur sedikit dari kamera agar kepala dan tangan terlihat.",
+  "Ruangan yang terang membuat deteksi lebih akurat."
+];
+let tipI = 0;
+const nextTip = () => { $("ldTip").textContent = "💡 " + tips[tipI++ % tips.length]; };
+nextTip(); setInterval(nextTip, 3500);
+function setLoad(p, t) { $("ldFill").style.width = p + "%"; if (t) $("ldText").textContent = t; }
+function showLoad(p, t) { ld.classList.remove("hide"); setLoad(p, t); }
+function hideLoad() { ld.classList.add("hide"); }
+
+window.__ready = true;
+setLoad(100, "Siap!");
+setTimeout(hideLoad, 700);
 </script>
 </body>
 </html>
